@@ -38,6 +38,9 @@ s.setdefault('pluginConfigs', collections.OrderedDict())['jev-model-router@skill
         'balancedModel': 'claude-sonnet-5[1m]',
         'deepModel': 'claude-opus-5-5[1m]',
         'smallModelMaxTokens': 150000,
+        # Above this, switching model or effort costs more (uncached re-read)
+        # than one cheaper turn saves, so the router leaves the turn alone.
+        'maxSwitchTokens': 50000,
         'routeMainModel': True,
         'routeSubagentModel': False,
     }

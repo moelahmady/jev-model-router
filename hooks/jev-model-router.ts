@@ -106,6 +106,13 @@ export const register: Register = (on, options) => {
   // context tokens, a switch to a non-1M model is refused and the turn stays on
   // the current model. Headroom below 200k covers the turn's own output.
   const smallModelMaxTokens = number('smallModelMaxTokens', 150000)
+  // Changing the model, or the effort, mid-conversation throws away the prompt
+  // cache: the whole context is re-read at the full input rate instead of the
+  // ~10x cheaper cache-read rate. That tax grows with the context; one cheap
+  // turn can't earn it back once the session is large (850k context: ~$1.70 to
+  // switch Opus→Sonnet vs ~$0.17 to stay cached). Above this many live context
+  // tokens the router changes nothing and the turn keeps its warm cache.
+  const maxSwitchTokens = number('maxSwitchTokens', 50000)
 
   const policy: PolicyConfig = {
     tiers: {
@@ -223,18 +230,27 @@ export const register: Register = (on, options) => {
     // The main loop's `model` is sent to the API as written, so an alias
     // becomes its id here; a subagent's (agent.spawn) may stay an alias.
     let tooBig = ''
-    if (routeMainModel && routing.model) {
+    const wantsModel = routeMainModel && Boolean(routing.model)
+    const wantsEffort = routeMainEffort && Boolean(routing.effort)
+    // Free call: the status line's own figures, no token-count request. Read
+    // only when a change is on the table; unknown size counts as too big.
+    let tokens = 0
+    if (wantsModel || wantsEffort) {
+      try {
+        tokens = (await $.session.usage()).context.tokens ?? 0
+      } catch {
+        tokens = Number.POSITIVE_INFINITY
+      }
+    }
+    const size = Number.isFinite(tokens) ? Math.round(tokens / 1000) + 'k' : 'unknown'
+    const cacheBound = (wantsModel || wantsEffort) && tokens > maxSwitchTokens
+    if (cacheBound) {
+      tooBig = ` (context ${size} > ${Math.round(maxSwitchTokens / 1000)}k: a switch would re-read it uncached, kept)`
+    } else if (wantsModel && routing.model) {
       const wanted = requestModelId(routing.model)
       if (/\[1m\]/i.test(wanted)) {
         change.model = wanted
       } else {
-        // Free call: the status line's own figures, no token-count request.
-        let tokens = 0
-        try {
-          tokens = (await $.session.usage()).context.tokens ?? 0
-        } catch {
-          tokens = Number.POSITIVE_INFINITY // unknown size: never risk the small window
-        }
         if (tokens <= smallModelMaxTokens) change.model = wanted
         else {
           // Too big for the small model: take the balanced tier instead when it
@@ -242,7 +258,6 @@ export const register: Register = (on, options) => {
           // default without risking a compaction. The downgrade bar was already
           // cleared for the smaller tier, so the milder step clears it too.
           const fallback = requestModelId(policy.tiers.balanced)
-          const size = Number.isFinite(tokens) ? Math.round(tokens / 1000) + 'k' : 'unknown'
           if (/\[1m\]/i.test(fallback) && fallback !== e.model) {
             change.model = fallback
             tooBig = ` (context ${size} > ${Math.round(smallModelMaxTokens / 1000)}k, ${wanted} → ${fallback})`
@@ -252,7 +267,7 @@ export const register: Register = (on, options) => {
         }
       }
     }
-    if (routeMainEffort && routing.effort) change.effort = routing.effort
+    if (!cacheBound && wantsEffort && routing.effort) change.effort = routing.effort
 
     appliedTurnId = e.turnId
     applied = Object.keys(change).length > 0 ? change : null

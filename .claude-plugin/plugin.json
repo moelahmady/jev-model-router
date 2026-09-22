@@ -1,6 +1,6 @@
 {
   "name": "jev-model-router",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Picks the model and reasoning effort for each turn with TypeSafe's Jev decision model. Routes the main loop's model and effort at turn.step (and subagent models at agent.spawn), in both directions, refuses small-window models once the session outgrows them, and falls back to the engine's built-in classifier when no key is set.",
   "author": {
     "name": "Mohamed Elahmady",
@@ -105,6 +105,12 @@
       "title": "Small-model context cap",
       "description": "Above this many live context tokens, a switch to a model without [1m] (about a 200k window) is refused, so routing to Haiku never forces an auto-compaction.",
       "default": 150000
+    },
+    "maxSwitchTokens": {
+      "type": "number",
+      "title": "Switch cap (context tokens)",
+      "description": "Above this many live context tokens the router changes neither model nor effort: a switch would re-read the whole context uncached, which costs more than one cheaper turn saves.",
+      "default": 50000
     }
   }
 }

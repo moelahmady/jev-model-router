@@ -49,12 +49,29 @@ One request, three questions evaluated in parallel:
 
 ## How it decides
 
-The two mistakes don't cost the same, so they don't share a bar:
+**First, whether switching is worth it at all.** Changing the model, or the
+effort, mid-conversation throws away the prompt cache: the whole context is
+re-read at the full input rate instead of the ~10x cheaper cache-read rate.
+That tax grows with the context, and one cheaper turn can't earn it back once
+the session is large:
+
+| Context | Stay (cache read, Opus 5.5) | Switch to Sonnet 5 (uncached) |
+|---|---|---|
+| 30k | $0.006 | $0.06 |
+| 150k | $0.03 | $0.30 |
+| 850k | $0.17 | $1.70 |
+
+So above `maxSwitchTokens` (50k) the router changes **nothing**, neither model
+nor effort, and the turn keeps its warm cache. The routing pays off at the start
+of a session, where a switch costs pennies. Prices: Opus 5.5 $4 in / $0.20 cache
+read / $20 out, Sonnet 5 $2 in / $10 out, per million tokens.
+
+Then, the two mistakes don't cost the same, so they don't share a bar:
 
 - Spending **more** (bigger model, more reasoning) needs `minUpgradeConfidence`, 0.3.
 - Spending **less** needs `minDowngradeConfidence`, 0.6.
 - `risky` above 0.7 forces the deep tier and real reasoning, past both bars.
-- **Context gate:** a routed model without `[1m]` is applied only
+- **Context gate** (only reached if you raise `maxSwitchTokens` past it): a routed model without `[1m]` is applied only
   when live context is at or under `smallModelMaxTokens` (150k). Above it, or
   when the size can't be read, the turn goes to the balanced tier instead when
   that is a `[1m]` model (Sonnet by default), otherwise it stays on its current model. Jev reads
@@ -74,12 +91,11 @@ exactly as the engine built it. The router never blocks a turn.
 [jev-model-router] main loop → claude-haiku-4-5-20251001, effort low: fast (confidence 0.87)
 [jev-model-router] wants claude-sonnet-5[1m]: tier balanced (0.52) · effort 0.8 → medium (0.50) · risky 0.10 · 802ms
 [jev-model-router] main loop: kept claude-opus-5-5[1m]/medium, wanted claude-sonnet-5[1m]/medium (confidence 0.52)
-[jev-model-router] main loop → claude-sonnet-5[1m], effort low: fast (confidence 0.95) (context 850k > 150k, claude-haiku-4-5-20251001 → claude-sonnet-5[1m])
+[jev-model-router] main loop: fast (confidence 0.95) (context 850k > 50k: a switch would re-read it uncached, kept)
 ```
 
-The last line is the context gate at work: Jev said `fast`, but the session is
-too big for Haiku, so the turn goes to Sonnet `[1m]` instead: still cheaper than
-Opus, and no forced compaction.
+The last line is the cost cap at work: Jev said `fast`, but at 850k the cache
+re-read would cost about 10x what staying costs, so nothing changes.
 
 - `ready on` appears once per session: proof the module loaded, and which backend answers.
 - `wants` is what Jev asked for, before policy. It fires at `prompt.submit`, before the turn exists.
@@ -128,6 +144,7 @@ your normal Claude Code credentials.
   fastModel:              string  fast tier, alias or full id (default "haiku")
   balancedModel:          string  balanced tier, alias or full id (default "sonnet")
   deepModel:              string  deep tier, alias or full id (default "opus")
+  maxSwitchTokens:        number  above this, change neither model nor effort (default 50000)
   smallModelMaxTokens:    number  context cap for any non-[1m] model (default 150000)
   minUpgradeConfidence:   number  bar to spend more (default 0.3)
   minDowngradeConfidence: number  bar to spend less (default 0.6)
@@ -160,6 +177,7 @@ Recommended config, in `~/.claude/settings.json`:
         "fastModel": "haiku",
         "balancedModel": "claude-sonnet-5[1m]",
         "deepModel": "claude-opus-5-5[1m]",
+        "maxSwitchTokens": 50000,
         "smallModelMaxTokens": 150000,
         "routeMainModel": true,
         "routeSubagentModel": false
