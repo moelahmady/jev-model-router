@@ -1,51 +1,32 @@
 /**
- * jev-model-router — Claude Mod (EARLY ACCESS)
+ * jev-model-router — routes each turn's reasoning effort with TypeSafe's Jev.
  *
- * Picks the model each task runs on with TypeSafe's Jev, a System One
- * decision model: unstructured state in, a typed choice with a probability
- * distribution out.
+ * Jev classifies every prompt (tier, effort, risk) at `prompt.submit`; the
+ * decision is applied at the turn's first `turn.step` request and reused for
+ * the rest of that turn. Every new turn starts again from the session's own
+ * model and effort.
  *
- * Jev is reached one of two ways, whichever key is configured: TypeSafe's
- * own API (`typesafeApiKey`), which reports a calibrated confidence per
- * answer, or the Vercel AI Gateway (`gatewayApiKey`), which does not. With
- * neither, the engine's own `$.model.classify` stands in, so the mod is
- * useful without any account.
+ * Recommended: effort only (routeMainModel false). Lowering effort on a
+ * simple turn cuts thinking/output tokens and, on Claude Code 2.1.280+, keeps
+ * the prompt cache (effort is sent per turn). Switching the MODEL throws the
+ * cache away, so model changes are refused above `maxSwitchTokens`.
  *
- * Three things it can set, each on its own switch:
- *   agent.spawn  — the model of each subagent (on by default)
- *   turn.step    — the reasoning effort of the main loop (on by default)
- *   turn.step    — the model of the main loop (off by default: switching
- *                  models mid-session invalidates the prompt cache, which can
- *                  cost more than the cheaper tier saves)
+ * Both directions: a task read as mechanical is routed down, a hard one up,
+ * with a higher confidence bar to spend less than to spend more.
  *
- * Every one of them moves in both directions: a task the decision model reads
- * as mechanical is routed down, one it reads as hard is routed up. The two
- * mistakes do not cost the same, so they do not clear the same confidence bar
- * (see `minUpgradeConfidence` / `minDowngradeConfidence` in policy.ts).
+ * Fail-open: an error, timeout, or malformed answer leaves the request exactly
+ * as the engine built it. With no `typesafeApiKey`, the engine's own
+ * `$.model.classify` answers (no confidence, so it can only route up).
  *
- * The Agent tool has no effort parameter, so a subagent's effort is not ours
- * to set; only its model is.
- *
- * The prompt is classified at `prompt.submit`, which runs before the turn
- * starts, and the decision is applied at the turn's first request.
- *
- * Every failure path is fail-open: a classification that errors or runs past
- * the latency budget leaves the request exactly as the engine built it.
- *
- * The API key comes from the plugin's options (userConfig "typesafeApiKey"
- * or "gatewayApiKey"). Never hardcode it in this file.
- *
- * Needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 (Claude Code >= 2.1.259). Typed
- * against Anthropic's declarations: https://github.com/anthropics/claude-code/tree/main/mods
- *
- * Privacy: with a key set, the prompt text is sent to whichever backend the
- * key belongs to.
+ * Needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 and Claude Code >= 2.1.280.
+ * Privacy: with a key set, the prompt text is sent to api.typesafe.ai.
  */
 import type { Register } from 'claude-code'
 import {
   DEFAULT_BASE_URL,
   DEFAULT_MODEL,
   describeDecision,
+  effortLevel,
   describeSetup,
   describeStatus,
   endpoint,
@@ -106,12 +87,15 @@ export const register: Register = (on, options) => {
   // context tokens, a switch to a non-1M model is refused and the turn stays on
   // the current model. Headroom below 200k covers the turn's own output.
   const smallModelMaxTokens = number('smallModelMaxTokens', 150000)
-  // Changing the model, or the effort, mid-conversation throws away the prompt
-  // cache: the whole context is re-read at the full input rate instead of the
-  // ~10x cheaper cache-read rate. That tax grows with the context; one cheap
-  // turn can't earn it back once the session is large (850k context: ~$1.70 to
-  // switch Opus→Sonnet vs ~$0.17 to stay cached). Above this many live context
-  // tokens the router changes nothing and the turn keeps its warm cache.
+  // Changing the MODEL mid-conversation throws away the prompt cache (caches
+  // are per model): the whole context is written again at up to 2x the input
+  // rate. At 600k that is ~$2.40 to hop Opus 5.5 → Sonnet 5 against $0.12 to
+  // stay warm, more than one cheap turn earns back. Above this many live
+  // context tokens a model change is refused.
+  //
+  // EFFORT is not gated. Claude Code 2.1.280+ sends effort per turn
+  // (per-turn-control), which keeps the cache on Opus 5.5, so lowering effort
+  // on a simple turn saves thinking/output tokens at any session size.
   const maxSwitchTokens = number('maxSwitchTokens', 50000)
 
   const policy: PolicyConfig = {
@@ -127,8 +111,8 @@ export const register: Register = (on, options) => {
   // The classification waiting for the turn that reads its prompt, and what
   // the current turn settled on. Both are single slots: main-loop turns run
   // one at a time, so nothing accumulates over a long session. `pending`
-  // reports no decision when two prompts are waiting at once, rather than
-  // routing a turn on a decision made for a different prompt.
+  // keeps only the latest classification, so a prompt that never starts a
+  // turn (a slash command, an interrupt) can't leave the next one unrouted.
   const pending = pendingDecisions()
   // Said once, the first time a hook runs. A router that loaded and one that
   // never loaded are otherwise told apart only by the absence of later lines,
@@ -207,7 +191,13 @@ export const register: Register = (on, options) => {
       const ms = (await $.clock.now()) - startedAt
       // Name the model this decision asks for, not the decider.
       // "jev:" told you who chose and never what you would get.
-      const wants = decision ? requestModelId(policy.tiers[decision.tier]) : 'no decision'
+      const wants = !decision
+        ? 'no decision'
+        : routeMainModel
+          ? requestModelId(policy.tiers[decision.tier])
+          : decision.effort !== null
+            ? `effort ${effortLevel(decision.effort)}`
+            : 'no effort answer'
       $.ui.log(`[jev-model-router] wants ${wants}: ${describeDecision(decision, ms)}`)
     }
 
@@ -233,9 +223,9 @@ export const register: Register = (on, options) => {
     const wantsModel = routeMainModel && Boolean(routing.model)
     const wantsEffort = routeMainEffort && Boolean(routing.effort)
     // Free call: the status line's own figures, no token-count request. Read
-    // only when a change is on the table; unknown size counts as too big.
+    // only when a model change is on the table; unknown size counts as too big.
     let tokens = 0
-    if (wantsModel || wantsEffort) {
+    if (wantsModel) {
       try {
         tokens = (await $.session.usage()).context.tokens ?? 0
       } catch {
@@ -243,9 +233,9 @@ export const register: Register = (on, options) => {
       }
     }
     const size = Number.isFinite(tokens) ? Math.round(tokens / 1000) + 'k' : 'unknown'
-    const cacheBound = (wantsModel || wantsEffort) && tokens > maxSwitchTokens
+    const cacheBound = wantsModel && tokens > maxSwitchTokens
     if (cacheBound) {
-      tooBig = ` (context ${size} > ${Math.round(maxSwitchTokens / 1000)}k: a switch would re-read it uncached, kept)`
+      tooBig = ` (context ${size} > ${Math.round(maxSwitchTokens / 1000)}k: a model switch would re-read it uncached, model kept)`
     } else if (wantsModel && routing.model) {
       const wanted = requestModelId(routing.model)
       if (/\[1m\]/i.test(wanted)) {
@@ -267,7 +257,7 @@ export const register: Register = (on, options) => {
         }
       }
     }
-    if (!cacheBound && wantsEffort && routing.effort) change.effort = routing.effort
+    if (wantsEffort && routing.effort) change.effort = routing.effort
 
     appliedTurnId = e.turnId
     applied = Object.keys(change).length > 0 ? change : null
@@ -278,8 +268,14 @@ export const register: Register = (on, options) => {
       // A turn left alone is the common case, and it used to be silent, which
       // made a working mod look like one that never loaded. Say what happened.
       if (logDecisions) {
-        const suppressed = routing.model && !routeMainModel ? ' (main-loop model routing off)' : ''
-        $.ui.log(`[jev-model-router] main loop: ${routing.reason}${suppressed}${tooBig}`)
+        if (!routeMainModel && decision) {
+          // Effort-only: the tier's model is irrelevant, so don't name it.
+          const said = decision.confidence === null ? 'confidence n/d' : `confidence ${decision.confidence.toFixed(2)}`
+          $.ui.log(`[jev-model-router] main loop: kept effort ${e.effort ?? 'default'}: ${decision.tier} (${said})`)
+        } else {
+          const suppressed = routing.model && !routeMainModel ? ' (main-loop model routing off)' : ''
+          $.ui.log(`[jev-model-router] main loop: ${routing.reason}${suppressed}${tooBig}`)
+        }
       }
       return yield* next(e)
     }

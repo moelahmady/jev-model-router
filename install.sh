@@ -10,7 +10,7 @@ SETTINGS="$HOME/.claude/settings.json"
 
 command -v claude >/dev/null || { echo "claude CLI not found"; exit 1; }
 VER=$(claude --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-printf '2.1.259\n%s\n' "$VER" | sort -V -C || { echo "needs Claude Code >= 2.1.259 (found $VER)"; exit 1; }
+printf '2.1.280\n%s\n' "$VER" | sort -V -C || { echo "needs Claude Code >= 2.1.280 (per-turn effort keeps the cache) (found $VER)"; exit 1; }
 
 : "${TYPESAFE_API_KEY:?set TYPESAFE_API_KEY=apikey_... before running}"
 
@@ -41,7 +41,9 @@ s.setdefault('pluginConfigs', collections.OrderedDict())['jev-model-router@skill
         # Above this, switching model or effort costs more (uncached re-read)
         # than one cheaper turn saves, so the router leaves the turn alone.
         'maxSwitchTokens': 50000,
-        'routeMainModel': True,
+        # Effort only: a model switch re-reads the whole context uncached.
+        'routeMainModel': False,
+        'routeMainEffort': True,
         'routeSubagentModel': False,
     }
 }

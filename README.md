@@ -1,24 +1,22 @@
 # jev-model-router
 
-> [!WARNING]
-> **Not complete, and it does not work as intended. Do not install it.**
->
-> Measured on real long sessions (560k-620k tokens), main-loop routing costs
-> more than it saves. Switching the model, or the effort, mid-conversation throws
-> away the prompt cache, so the whole context is re-read at full price:
-> about $1.20 to switch Opus 5.5 to Sonnet 5 at 600k, and about $2.40 more to
-> switch back on the next turn, to save a few cents of output. The 50k
-> `maxSwitchTokens` cap stops that, but in long sessions it also means the router
-> never acts, while still calling TypeSafe on every prompt. Kept for reference only.
+> [!NOTE]
+> **Use it for effort only.** Routing the main conversation's *model* costs more
+> than it saves in long sessions: caches are per model, so a switch re-writes
+> the whole context (~$2.40 to hop Opus 5.5 to Sonnet 5 at 600k, against $0.12
+> to stay warm). Routing *effort* doesn't have that problem: on Claude Code
+> 2.1.280+ effort is sent per turn and the cache survives, so dropping to `low`
+> on simple turns saves thinking and output tokens at any session size.
+> Status: experimental, not yet measured on a real bill.
 
-Picks the model and reasoning effort for each turn using
+Picks the reasoning effort (and optionally the model) for each turn using
 [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev),
 TypeSafe's System One decision model: unstructured state in, a typed choice
 with a probability distribution out, no free-form text.
 
-TypeSafe only, logs that name the real model, a stray classification never
-unroutes the next turn, and a context-size gate that keeps small-window models
-like Haiku away from big sessions.
+TypeSafe only, logs that name what actually changed, a stray classification
+never unroutes the next turn, and model switches refused once the session is too
+big for them to pay off.
 
 ## Backend
 
@@ -36,14 +34,13 @@ Vercel.
 
 | Switch | What it sets | Default | Recommended |
 |---|---|---|---|
-| `routeMainModel` | model of the main conversation, at `turn.step` | off | **on** |
+| `routeMainModel` | model of the main conversation, at `turn.step` | off | **off** |
 | `routeMainEffort` | reasoning effort of the main conversation | on | on |
 | `routeSubagentModel` | model of each subagent, at `agent.spawn` | on | **off** |
 
 `routeSubagentModel` is off so an explicit `model:` you pass on an Agent spawn is
-never overridden. Switching the main loop's model mid-session invalidates the
-prompt cache; on a long context re-caching can cost more than the cheaper tier
-saves, so watch your sessions.
+never overridden. `routeMainModel` is off because a model switch invalidates
+the prompt cache (see How it decides). `routeMainEffort` is the useful one.
 
 The prompt is classified at `prompt.submit` and the decision applies to the
 turn's first model request, then is reused for the rest of that turn.
@@ -60,22 +57,30 @@ One request, three questions evaluated in parallel:
 
 ## How it decides
 
-**First, whether switching is worth it at all.** Changing the model, or the
-effort, mid-conversation throws away the prompt cache: the whole context is
-re-read at the full input rate instead of the ~10x cheaper cache-read rate.
-That tax grows with the context, and one cheaper turn can't earn it back once
-the session is large:
+**Model switches are gated; effort isn't.** Prompt caches are per model. A
+model switch means the new model has no cache for the conversation, so the
+whole context is written again: 1.25x the input rate (5-minute cache) or 2x
+(1-hour cache). Per turn at 600k context:
 
-| Context | Stay (cache read, Opus 5.5) | Switch to Sonnet 5 (uncached) |
+| | Opus 5.5 | Sonnet 5 |
 |---|---|---|
-| 30k | $0.006 | $0.06 |
-| 150k | $0.03 | $0.30 |
-| 850k | $0.17 | $1.70 |
+| Stay warm (cache read, $0.20/M) | $0.12 | $0.12 |
+| Cold hop, 5-minute cache | $3.00 | $1.50 |
+| Cold hop, 1-hour cache | $4.80 | $2.40 |
 
-So above `maxSwitchTokens` (50k) the router changes **nothing**, neither model
-nor effort, and the turn keeps its warm cache. The routing pays off at the start
-of a session, where a switch costs pennies. Prices: Opus 5.5 $4 in / $0.20 cache
-read / $20 out, Sonnet 5 $2 in / $10 out, per million tokens.
+A cold hop to Sonnet costs ~$2.28 more than staying on Opus. Sonnet saves
+$10/M on output, so it needs ~228k output tokens on routed turns to earn that
+back; quick "fast" turns almost never do. Hopping back to Opus within the cache
+lifetime usually finds Opus's cache still warm. So above `maxSwitchTokens`
+(50k) the model is never changed.
+
+Effort is different. On Claude Code 2.1.280+ effort goes out per turn and the
+cache survives the change on Opus 5.5, so effort is routed at any session size.
+Dropping to `low` on a simple turn cuts thinking and output tokens ($20/M on
+Opus 5.5) with no re-read.
+
+Prices: Opus 5.5 $4 in / $0.20 cache read / $20 out; Sonnet 5 $2 in / $0.20 cache
+read / $10 out, per million tokens.
 
 Then, the two mistakes don't cost the same, so they don't share a bar:
 
@@ -97,16 +102,17 @@ exactly as the engine built it. The router never blocks a turn.
 ## What you see
 
 ```
-[jev-model-router] ready on typesafe (https://api.typesafe.ai/v1/systemone); routing main effort, main model
-[jev-model-router] wants claude-haiku-4-5-20251001: tier fast (0.87) · effort 0.4 → low (0.71) · risky 0.02 · 249ms
-[jev-model-router] main loop → claude-haiku-4-5-20251001, effort low: fast (confidence 0.87)
-[jev-model-router] wants claude-sonnet-5[1m]: tier balanced (0.52) · effort 0.8 → medium (0.50) · risky 0.10 · 802ms
-[jev-model-router] main loop: kept claude-opus-5-5[1m]/medium, wanted claude-sonnet-5[1m]/medium (confidence 0.52)
-[jev-model-router] main loop: fast (confidence 0.95) (context 850k > 50k: a switch would re-read it uncached, kept)
+[jev-model-router] ready on typesafe (https://api.typesafe.ai/v1/systemone); routing main effort
+[jev-model-router] wants effort low: tier fast (0.87) · effort 0.4 → low (0.71) · risky 0.02 · 249ms
+[jev-model-router] main loop → effort low: fast (confidence 0.87)
+[jev-model-router] wants effort medium: tier balanced (0.52) · effort 1.2 → medium (0.50) · risky 0.10 · 249ms
+[jev-model-router] main loop: kept effort medium: balanced (confidence 0.52)
 ```
 
-The last line is the cost cap at work: Jev said `fast`, but at 850k the cache
-re-read would cost about 10x what staying costs, so nothing changes.
+That's effort-only mode at 600k context: a simple turn drops to `low` on the
+same model and cache; an ordinary one stays at `medium`. With `routeMainModel` on,
+a model switch above `maxSwitchTokens` logs `a model switch would re-read it
+uncached, model kept` instead.
 
 - `ready on` appears once per session: proof the module loaded, and which backend answers.
 - `wants` is what Jev asked for, before policy. It fires at `prompt.submit`, before the turn exists.
@@ -117,8 +123,8 @@ re-read would cost about 10x what staying costs, so nothing changes.
 The status line under the prompt always leads with the model the turn actually runs on:
 
 ```
-claude-haiku-4-5-20251001/low · fast 0.87 · routed
-claude-opus-5-5[1m]/medium · fast 0.41 · kept
+claude-opus-5-5[1m]/low · fast 0.87 · routed
+claude-opus-5-5[1m]/medium · balanced 0.52 · kept
 claude-opus-5-5[1m]/medium · no decision
 ```
 
@@ -132,7 +138,7 @@ session setting. Trust the `main loop` line and the status line, not the header.
 ### No lines at all
 
 1. **Headless run (`claude -p` or the SDK).** Lines go to `~/.claude/debug/<session-id>.txt` instead.
-2. **Function hooks are off.** Needs `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` and Claude Code 2.1.259+.
+2. **Function hooks are off.** Needs `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` and Claude Code 2.1.280+.
 3. **Options under the wrong key.** A `ready on the built-in classifier, no key set`
    line when you did set a key means `pluginConfigs` uses the wrong id. Installed
    in `~/.claude/skills/`, the id is `jev-model-router@skills-dir`.
@@ -155,7 +161,7 @@ your normal Claude Code credentials.
   fastModel:              string  fast tier, alias or full id (default "haiku")
   balancedModel:          string  balanced tier, alias or full id (default "sonnet")
   deepModel:              string  deep tier, alias or full id (default "opus")
-  maxSwitchTokens:        number  above this, change neither model nor effort (default 50000)
+  maxSwitchTokens:        number  above this, never change the model; effort is unaffected (default 50000)
   smallModelMaxTokens:    number  context cap for any non-[1m] model (default 150000)
   minUpgradeConfidence:   number  bar to spend more (default 0.3)
   minDowngradeConfidence: number  bar to spend less (default 0.6)
@@ -190,7 +196,8 @@ Recommended config, in `~/.claude/settings.json`:
         "deepModel": "claude-opus-5-5[1m]",
         "maxSwitchTokens": 50000,
         "smallModelMaxTokens": 150000,
-        "routeMainModel": true,
+        "routeMainModel": false,
+        "routeMainEffort": true,
         "routeSubagentModel": false
       }
     }
@@ -212,7 +219,7 @@ TYPESAFE_API_KEY='apikey_...' ./jev-model-router/install.sh
 
 The installer copies the plugin to `~/.claude/skills/jev-model-router`, backs up
 `settings.json`, writes the recommended config above, and runs
-`claude plugin validate`. It needs Claude Code 2.1.259+. The key is never stored
+`claude plugin validate`. It needs Claude Code 2.1.280+. The key is never stored
 in the package. Send it separately from the file.
 
 After installing, restart Claude Code and run `/plugin-types`. The `$` API is
