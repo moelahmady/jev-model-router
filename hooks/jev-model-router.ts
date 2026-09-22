@@ -236,7 +236,20 @@ export const register: Register = (on, options) => {
           tokens = Number.POSITIVE_INFINITY // unknown size: never risk the small window
         }
         if (tokens <= smallModelMaxTokens) change.model = wanted
-        else tooBig = ` (context ${Number.isFinite(tokens) ? Math.round(tokens / 1000) + 'k' : 'unknown'} > ${Math.round(smallModelMaxTokens / 1000)}k, ${wanted} skipped)`
+        else {
+          // Too big for the small model: take the balanced tier instead when it
+          // is a 1M model, so a cheap task still runs cheaper than the session
+          // default without risking a compaction. The downgrade bar was already
+          // cleared for the smaller tier, so the milder step clears it too.
+          const fallback = requestModelId(policy.tiers.balanced)
+          const size = Number.isFinite(tokens) ? Math.round(tokens / 1000) + 'k' : 'unknown'
+          if (/\[1m\]/i.test(fallback) && fallback !== e.model) {
+            change.model = fallback
+            tooBig = ` (context ${size} > ${Math.round(smallModelMaxTokens / 1000)}k, ${wanted} → ${fallback})`
+          } else {
+            tooBig = ` (context ${size} > ${Math.round(smallModelMaxTokens / 1000)}k, ${wanted} skipped)`
+          }
+        }
       }
     }
     if (routeMainEffort && routing.effort) change.effort = routing.effort

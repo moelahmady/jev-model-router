@@ -56,7 +56,8 @@ The two mistakes don't cost the same, so they don't share a bar:
 - `risky` above 0.7 forces the deep tier and real reasoning, past both bars.
 - **Context gate:** a routed model without `[1m]` is applied only
   when live context is at or under `smallModelMaxTokens` (150k). Above it, or
-  when the size can't be read, the turn stays on its current model. Jev reads
+  when the size can't be read, the turn goes to the balanced tier instead when
+  that is a `[1m]` model (Sonnet by default), otherwise it stays on its current model. Jev reads
   only your latest message, so a short "i merged it already" can score `fast` at
   0.92 inside an 850k session; without this gate that switched to Haiku's 200k
   window, forced a compaction, and the compaction then failed on Haiku too.
@@ -73,11 +74,12 @@ exactly as the engine built it. The router never blocks a turn.
 [jev-model-router] main loop → claude-haiku-4-5-20251001, effort low: fast (confidence 0.87)
 [jev-model-router] wants claude-sonnet-5[1m]: tier balanced (0.52) · effort 0.8 → medium (0.50) · risky 0.10 · 802ms
 [jev-model-router] main loop: kept claude-opus-5-5[1m]/medium, wanted claude-sonnet-5[1m]/medium (confidence 0.52)
-[jev-model-router] main loop → effort low: fast (confidence 0.95) (context 850k > 150k, claude-haiku-4-5-20251001 skipped)
+[jev-model-router] main loop → claude-sonnet-5[1m], effort low: fast (confidence 0.95) (context 850k > 150k, claude-haiku-4-5-20251001 → claude-sonnet-5[1m])
 ```
 
-The last line is the context gate at work: Jev said `fast`, so the effort still
-drops, but the switch to Haiku is refused because the session is too big for it.
+The last line is the context gate at work: Jev said `fast`, but the session is
+too big for Haiku, so the turn goes to Sonnet `[1m]` instead: still cheaper than
+Opus, and no forced compaction.
 
 - `ready on` appears once per session: proof the module loaded, and which backend answers.
 - `wants` is what Jev asked for, before policy. It fires at `prompt.submit`, before the turn exists.

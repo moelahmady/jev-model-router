@@ -1,6 +1,6 @@
 {
   "name": "jev-model-router",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Picks the model and reasoning effort for each turn with TypeSafe's Jev decision model. Routes the main loop's model and effort at turn.step (and subagent models at agent.spawn), in both directions, refuses small-window models once the session outgrows them, and falls back to the engine's built-in classifier when no key is set.",
   "author": {
     "name": "Mohamed Elahmady",
