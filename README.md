@@ -1,5 +1,16 @@
 # jev-model-router
 
+> [!WARNING]
+> **Not complete, and it does not work as intended. Do not install it.**
+>
+> Measured on real long sessions (560k-620k tokens), main-loop routing costs
+> more than it saves. Switching the model, or the effort, mid-conversation throws
+> away the prompt cache, so the whole context is re-read at full price:
+> about $1.20 to switch Opus 5.5 to Sonnet 5 at 600k, and about $2.40 more to
+> switch back on the next turn, to save a few cents of output. The 50k
+> `maxSwitchTokens` cap stops that, but in long sessions it also means the router
+> never acts, while still calling TypeSafe on every prompt. Kept for reference only.
+
 Picks the model and reasoning effort for each turn using
 [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev),
 TypeSafe's System One decision model: unstructured state in, a typed choice
