@@ -14,9 +14,9 @@ Picks the reasoning effort (and optionally the model) for each turn using
 TypeSafe's System One decision model: unstructured state in, a typed choice
 with a probability distribution out, no free-form text.
 
-TypeSafe only, logs that name what actually changed, a stray classification
-never unroutes the next turn, and model switches refused once the session is too
-big for them to pay off.
+It talks to TypeSafe only, logs name what actually changed, a stray
+classification never unroutes the next turn, and model switches are refused once
+the session is too big for them to pay off.
 
 ## Backend
 
@@ -52,8 +52,9 @@ One request, three questions evaluated in parallel:
 - `tier`: a `choice` between three descriptions of the *work* (mechanical and
   local / ordinary engineering / hard or high-stakes). Jev never sees a model name.
 - `effort`: a `score` on a four-level rubric for how much reasoning the task needs.
-- `risky`: a `noul` for whether the task touches production, money,
-  credentials, or state that can't be undone.
+- `risky`: a `noul` for whether carrying out the task would itself change
+  production, move real money, or alter data that can't be restored. Writing or
+  testing code that deals with those things doesn't count.
 
 ## How it decides
 
@@ -87,14 +88,16 @@ Then, the two mistakes don't cost the same, so they don't share a bar:
 - Spending **more** (bigger model, more reasoning) needs `minUpgradeConfidence`, 0.3.
 - Spending **less** needs `minDowngradeConfidence`, 0.6.
 - `risky` above 0.7 forces the deep tier and real reasoning, past both bars.
-- **Context gate** (only reached if you raise `maxSwitchTokens` past it): a routed model without `[1m]` is applied only
-  when live context is at or under `smallModelMaxTokens` (150k). Above it, or
+- **Context gate**: a routed model without `[1m]` is applied only when live
+  context is at or under `smallModelMaxTokens` (150k). Above it, or
   when the size can't be read, the turn goes to the balanced tier instead when
   that is a `[1m]` model (Sonnet by default), otherwise it stays on its current model. Jev reads
   only your latest message, so a short "i merged it already" can score `fast` at
   0.92 inside an 850k session; without this gate that switched to Haiku's 200k
   window, forced a compaction, and the compaction then failed on Haiku too.
-  `[1m]` models are never gated.
+  `[1m]` models are never gated. With the defaults this gate never fires,
+  because `maxSwitchTokens` (50k) already stops every model switch first. It
+  only matters if you raise `maxSwitchTokens` above `smallModelMaxTokens`.
 
 Any failure (non-2xx, timeout, malformed body, thrown error) leaves the request
 exactly as the engine built it. The router never blocks a turn.
@@ -221,12 +224,14 @@ TYPESAFE_API_KEY='apikey_...' ./jev-model-router/install.sh
 
 The installer copies the plugin to `~/.claude/skills/jev-model-router`, backs up
 `settings.json`, writes the recommended config above, and runs
-`claude plugin validate`. It needs Claude Code 2.1.280+. The key is never stored
-in the package. Send it separately from the file.
+`claude plugin validate`. It needs Claude Code 2.1.280+. The key is read from
+the environment and written only to your `settings.json`; it is never stored in
+this repo.
 
-After installing, restart Claude Code and run `/plugin-types`. The `$` API is
-early access and gets renamed between releases, and `claude plugin validate`
-**does not** check that a `$` method exists; only the generated declarations do.
+After installing, restart Claude Code and run `/plugin-types` to generate the
+plugin API's TypeScript declarations. The `$` API is early access and gets
+renamed between releases, and `claude plugin validate` **does not** check that
+a `$` method exists; type-checking against those declarations does.
 
 ## Tests
 
