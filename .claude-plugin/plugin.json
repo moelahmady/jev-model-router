@@ -1,0 +1,110 @@
+{
+  "name": "jev-model-router",
+  "version": "1.0.0",
+  "description": "Picks the model and reasoning effort for each turn with TypeSafe's Jev decision model. Routes the main loop's model and effort at turn.step (and subagent models at agent.spawn), in both directions, refuses small-window models once the session outgrows them, and falls back to the engine's built-in classifier when no key is set.",
+  "author": {
+    "name": "Mohamed Elahmady",
+    "url": "https://github.com/moelahmady"
+  },
+  "repository": "https://github.com/moelahmady/jev-model-router",
+  "license": "MIT",
+  "keywords": [
+    "mod",
+    "function-hooks",
+    "productivity",
+    "routing"
+  ],
+  "userConfig": {
+    "typesafeApiKey": {
+      "type": "string",
+      "title": "TypeSafe API key",
+      "description": "Key for TypeSafe's own API; preferred over the Gateway, since only it reports a calibrated confidence",
+      "default": "",
+      "sensitive": true
+    },
+    "provider": {
+      "type": "string",
+      "title": "Backend",
+      "description": "Which backend to use: \"typesafe\" or \"builtin\". The Vercel Gateway is disabled in this install.",
+      "default": "auto"
+    },
+    "typesafeBaseUrl": {
+      "type": "string",
+      "title": "TypeSafe base URL",
+      "description": "Base URL of TypeSafe's own API; empty uses https://api.typesafe.ai",
+      "default": ""
+    },
+    "typesafeModel": {
+      "type": "string",
+      "title": "TypeSafe model",
+      "description": "Decision model on TypeSafe's own API; empty uses jev-latest",
+      "default": ""
+    },
+    "fastModel": {
+      "type": "string",
+      "title": "Fast tier",
+      "description": "Model alias or id for mechanical, local tasks",
+      "default": "haiku"
+    },
+    "balancedModel": {
+      "type": "string",
+      "title": "Balanced tier",
+      "description": "Model alias or id for ordinary engineering work",
+      "default": "sonnet"
+    },
+    "deepModel": {
+      "type": "string",
+      "title": "Deep tier",
+      "description": "Model alias or id for hard or high-stakes work",
+      "default": "opus"
+    },
+    "minUpgradeConfidence": {
+      "type": "number",
+      "title": "Confidence to spend more",
+      "description": "How sure the decision must be to raise the model or the effort; being wrong here costs money, so the bar is low",
+      "default": 0.3
+    },
+    "minDowngradeConfidence": {
+      "type": "number",
+      "title": "Confidence to spend less",
+      "description": "How sure it must be to lower the model or the effort; being wrong here means a task gets too little, so the bar is high",
+      "default": 0.6
+    },
+    "routeSubagentModel": {
+      "type": "boolean",
+      "title": "Route subagent models",
+      "description": "Pick the model of each subagent at agent.spawn (the Agent tool takes no effort)",
+      "default": true
+    },
+    "routeMainEffort": {
+      "type": "boolean",
+      "title": "Route the main loop's effort",
+      "description": "Raise or lower the reasoning effort of the main conversation",
+      "default": true
+    },
+    "routeMainModel": {
+      "type": "boolean",
+      "title": "Route the main loop's model",
+      "description": "Change the model of the main conversation; off by default because switching models mid-session invalidates the prompt cache",
+      "default": false
+    },
+    "timeoutMs": {
+      "type": "number",
+      "title": "Latency budget (ms)",
+      "description": "How long to wait for a decision before letting the request through unchanged",
+      "default": 800
+    },
+    "logDecisions": {
+      "type": "boolean",
+      "title": "Log decisions",
+      "description": "Write each routing decision to the session log",
+      "default": true
+    },
+    "smallModelMaxTokens": {
+      "type": "number",
+      "title": "Small-model context cap",
+      "description": "Above this many live context tokens, a switch to a model without [1m] (about a 200k window) is refused, so routing to Haiku never forces an auto-compaction.",
+      "default": 150000
+    }
+  }
+}
