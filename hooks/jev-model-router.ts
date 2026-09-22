@@ -27,6 +27,7 @@ import {
   DEFAULT_MODEL,
   describeDecision,
   effortLevel,
+  EFFORT_ORDER,
   describeSetup,
   describeStatus,
   endpoint,
@@ -97,6 +98,10 @@ export const register: Register = (on, options) => {
   // (per-turn-control), which keeps the cache on Opus 5.5, so lowering effort
   // on a simple turn saves thinking/output tokens at any session size.
   const maxSwitchTokens = number('maxSwitchTokens', 50000)
+  // The highest effort the router may set. It never raises a turn past this,
+  // whatever Jev or the risk rule asks for.
+  const maxEffortRaw = text('maxEffort', 'high')
+  const maxEffortRank = Math.max(0, EFFORT_ORDER.indexOf(maxEffortRaw as Effort))
 
   const policy: PolicyConfig = {
     tiers: {
@@ -257,7 +262,11 @@ export const register: Register = (on, options) => {
         }
       }
     }
-    if (wantsEffort && routing.effort) change.effort = routing.effort
+    if (wantsEffort && routing.effort) {
+      const capped = EFFORT_ORDER[Math.min(EFFORT_ORDER.indexOf(routing.effort), maxEffortRank)] as Effort
+      // Capping can land on the effort the turn already has: then there is nothing to change.
+      if (capped !== e.effort) change.effort = capped
+    }
 
     appliedTurnId = e.turnId
     applied = Object.keys(change).length > 0 ? change : null

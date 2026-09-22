@@ -162,6 +162,7 @@ your normal Claude Code credentials.
   balancedModel:          string  balanced tier, alias or full id (default "sonnet")
   deepModel:              string  deep tier, alias or full id (default "opus")
   maxSwitchTokens:        number  above this, never change the model; effort is unaffected (default 50000)
+  maxEffort:              string  highest effort the router may set: low|medium|high|xhigh (default "high")
   smallModelMaxTokens:    number  context cap for any non-[1m] model (default 150000)
   minUpgradeConfidence:   number  bar to spend more (default 0.3)
   minDowngradeConfidence: number  bar to spend less (default 0.6)
@@ -195,6 +196,7 @@ Recommended config, in `~/.claude/settings.json`:
         "balancedModel": "claude-sonnet-5[1m]",
         "deepModel": "claude-opus-5-5[1m]",
         "maxSwitchTokens": 50000,
+        "maxEffort": "high",
         "smallModelMaxTokens": 150000,
         "routeMainModel": false,
         "routeMainEffort": true,

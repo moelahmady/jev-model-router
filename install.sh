@@ -44,6 +44,7 @@ s.setdefault('pluginConfigs', collections.OrderedDict())['jev-model-router@skill
         # Effort only: a model switch re-reads the whole context uncached.
         'routeMainModel': False,
         'routeMainEffort': True,
+        'maxEffort': 'high',
         'routeSubagentModel': False,
     }
 }

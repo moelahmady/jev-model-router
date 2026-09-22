@@ -1,6 +1,6 @@
 {
   "name": "jev-model-router",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Routes each turn's reasoning effort with TypeSafe's Jev decision model, keeping the prompt cache (Claude Code 2.1.280+). Model routing is available but off by default and refused above maxSwitchTokens, since a model switch re-writes the whole context.",
   "author": {
     "name": "Mohamed Elahmady",
@@ -111,6 +111,12 @@
       "title": "Switch cap (context tokens)",
       "description": "Above this many live context tokens the model is never changed (a switch re-writes the whole context uncached). Effort is not affected.",
       "default": 50000
+    },
+    "maxEffort": {
+      "type": "string",
+      "title": "Highest effort",
+      "description": "The router never raises a turn above this: low, medium, high or xhigh.",
+      "default": "high"
     }
   }
 }
