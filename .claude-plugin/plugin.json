@@ -97,8 +97,8 @@
     "logDecisions": {
       "type": "boolean",
       "title": "Log decisions",
-      "description": "Write each routing decision to the session log",
-      "default": true
+      "description": "Write every routing step to the transcript; the chosen effort always shows on the status line",
+      "default": false
     },
     "smallModelMaxTokens": {
       "type": "number",

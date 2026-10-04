@@ -81,7 +81,7 @@ export const register: Register = (on, options) => {
   const routeMainEffort = flag('routeMainEffort', true)
   const routeMainModel = flag('routeMainModel', false)
   const routeMainLoop = routeMainEffort || routeMainModel
-  const logDecisions = flag('logDecisions', true)
+  const logDecisions = flag('logDecisions', false)
   // A model without `[1m]` has a ~200k window. Routing a session
   // already past that onto it forces an auto-compaction, which then runs on the
   // small model and cannot fit the conversation either. Above this many live
@@ -271,7 +271,8 @@ export const register: Register = (on, options) => {
     appliedTurnId = e.turnId
     applied = Object.keys(change).length > 0 ? change : null
     // A row in the transcript scrolls away; this line stays on screen.
-    if (logDecisions) $.ui.status(describeStatus(decision, applied, { model: e.model, effort: e.effort }))
+    // Always on: this is the one line the person reads; logDecisions only gates the transcript rows.
+    $.ui.status(describeStatus(decision, applied, { model: e.model, effort: e.effort }))
 
     if (!applied) {
       // A turn left alone is the common case, and it used to be silent, which

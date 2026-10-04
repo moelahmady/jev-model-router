@@ -173,7 +173,7 @@ your normal Claude Code credentials.
   routeMainEffort:        boolean effort of the main loop (default true)
   routeMainModel:         boolean model of the main loop (default false)
   timeoutMs:              number  latency budget per classification (default 800)
-  logDecisions:           boolean log each decision (default true)
+  logDecisions:           boolean log each decision to the transcript (default false; the status line always shows)
 ```
 
 On the main loop an alias resolves to an id: `haiku` → `claude-haiku-4-5-20251001`,
