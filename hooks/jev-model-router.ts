@@ -29,7 +29,6 @@ import {
   effortLevel,
   EFFORT_ORDER,
   describeSetup,
-  describeStatus,
   endpoint,
   pendingDecisions,
   readDecision,
@@ -81,7 +80,7 @@ export const register: Register = (on, options) => {
   const routeMainEffort = flag('routeMainEffort', true)
   const routeMainModel = flag('routeMainModel', false)
   const routeMainLoop = routeMainEffort || routeMainModel
-  const logDecisions = flag('logDecisions', true)
+  const logDecisions = flag('logDecisions', false)
   // A model without `[1m]` has a ~200k window. Routing a session
   // already past that onto it forces an auto-compaction, which then runs on the
   // small model and cannot fit the conversation either. Above this many live
@@ -133,7 +132,7 @@ export const register: Register = (on, options) => {
       announced = true
       if (logDecisions) {
         $.ui.log(
-          `[jev-model-router] ${describeSetup(
+          `[gear] ${describeSetup(
             active,
             url,
             {
@@ -150,7 +149,7 @@ export const register: Register = (on, options) => {
 
     if (!unusableReported) {
       unusableReported = true
-      $.ui.log(`[jev-model-router] provider "${forced}" has no key set; using the built-in classifier`)
+      $.ui.log(`[gear] provider "${forced}" has no key set; using the built-in classifier`)
     }
 
     const startedAt = await $.clock.now()
@@ -166,10 +165,10 @@ export const register: Register = (on, options) => {
           $.clock.sleep(timeoutMs),
         ])
         if (response && response.ok) decision = readDecision(response.text)
-        else if (response) $.ui.log(`[jev-model-router] ${active} responded ${response.status}`)
-        else $.ui.log(`[jev-model-router] classification passed ${timeoutMs}ms; leaving the turn alone`)
+        else if (response) $.ui.log(`[gear] ${active} responded ${response.status}`)
+        else $.ui.log(`[gear] classification passed ${timeoutMs}ms; leaving the turn alone`)
       } catch (error) {
-        $.ui.log(`[jev-model-router] classification failed: ${String(error)}`)
+        $.ui.log(`[gear] classification failed: ${String(error)}`)
       }
     } else {
       // No backend: the engine's own small-model classifier answers the same
@@ -186,7 +185,7 @@ export const register: Register = (on, options) => {
           }
         }
       } catch (error) {
-        $.ui.log(`[jev-model-router] built-in classifier failed: ${String(error)}`)
+        $.ui.log(`[gear] built-in classifier failed: ${String(error)}`)
       }
     }
 
@@ -203,7 +202,7 @@ export const register: Register = (on, options) => {
           : decision.effort !== null
             ? `effort ${effortLevel(decision.effort)}`
             : 'no effort answer'
-      $.ui.log(`[jev-model-router] wants ${wants}: ${describeDecision(decision, ms)}`)
+      $.ui.log(`[gear] wants ${wants}: ${describeDecision(decision, ms)}`)
     }
 
     pending.put(decision)
@@ -226,7 +225,9 @@ export const register: Register = (on, options) => {
     // becomes its id here; a subagent's (agent.spawn) may stay an alias.
     let tooBig = ''
     const wantsModel = routeMainModel && Boolean(routing.model)
-    const wantsEffort = routeMainEffort && Boolean(routing.effort)
+    // Effort rides on whatever model the person picked; a model without effort
+    // support carries no e.effort, so there is nothing to shift.
+    const wantsEffort = routeMainEffort && Boolean(routing.effort) && e.effort !== undefined
     // Free call: the status line's own figures, no token-count request. Read
     // only when a model change is on the table; unknown size counts as too big.
     let tokens = 0
@@ -270,8 +271,9 @@ export const register: Register = (on, options) => {
 
     appliedTurnId = e.turnId
     applied = Object.keys(change).length > 0 ? change : null
-    // A row in the transcript scrolls away; this line stays on screen.
-    if (logDecisions) $.ui.status(describeStatus(decision, applied, { model: e.model, effort: e.effort }))
+    // Always on, and only the effort the turn runs at: the plugin's name already labels it.
+    const effortNow = applied?.effort ?? e.effort
+    $.ui.status(effortNow === undefined ? undefined : String(effortNow))
 
     if (!applied) {
       // A turn left alone is the common case, and it used to be silent, which
@@ -280,10 +282,10 @@ export const register: Register = (on, options) => {
         if (!routeMainModel && decision) {
           // Effort-only: the tier's model is irrelevant, so don't name it.
           const said = decision.confidence === null ? 'confidence n/d' : `confidence ${decision.confidence.toFixed(2)}`
-          $.ui.log(`[jev-model-router] main loop: kept effort ${e.effort ?? 'default'}: ${decision.tier} (${said})`)
+          $.ui.log(`[gear] main loop: kept effort ${e.effort ?? 'default'}: ${decision.tier} (${said})`)
         } else {
           const suppressed = routing.model && !routeMainModel ? ' (main-loop model routing off)' : ''
-          $.ui.log(`[jev-model-router] main loop: ${routing.reason}${suppressed}${tooBig}`)
+          $.ui.log(`[gear] main loop: ${routing.reason}${suppressed}${tooBig}`)
         }
       }
       return yield* next(e)
@@ -292,7 +294,7 @@ export const register: Register = (on, options) => {
       const what = [change.model, change.effort && `effort ${change.effort}`]
         .filter(Boolean)
         .join(', ')
-      $.ui.log(`[jev-model-router] main loop → ${what}: ${routing.reason}${tooBig}`)
+      $.ui.log(`[gear] main loop → ${what}: ${routing.reason}${tooBig}`)
     }
     return yield* next({ ...e, ...change })
   })
@@ -304,7 +306,7 @@ export const register: Register = (on, options) => {
       announced = true
       if (logDecisions) {
         $.ui.log(
-          `[jev-model-router] ${describeSetup(
+          `[gear] ${describeSetup(
             active,
             url,
             {
@@ -323,7 +325,7 @@ export const register: Register = (on, options) => {
 
     if (!unusableReported) {
       unusableReported = true
-      $.ui.log(`[jev-model-router] provider "${forced}" has no key set; using the built-in classifier`)
+      $.ui.log(`[gear] provider "${forced}" has no key set; using the built-in classifier`)
     }
 
     const startedAt = await $.clock.now()
@@ -343,10 +345,10 @@ export const register: Register = (on, options) => {
           $.clock.sleep(timeoutMs),
         ])
         if (response && response.ok) decision = readDecision(response.text)
-        else if (response) $.ui.log(`[jev-model-router] ${active} responded ${response.status}`)
-        else $.ui.log(`[jev-model-router] classification passed ${timeoutMs}ms; leaving the subagent alone`)
+        else if (response) $.ui.log(`[gear] ${active} responded ${response.status}`)
+        else $.ui.log(`[gear] classification passed ${timeoutMs}ms; leaving the subagent alone`)
       } catch (error) {
-        $.ui.log(`[jev-model-router] classification failed: ${String(error)}`)
+        $.ui.log(`[gear] classification failed: ${String(error)}`)
       }
     } else {
       try {
@@ -361,13 +363,13 @@ export const register: Register = (on, options) => {
           }
         }
       } catch (error) {
-        $.ui.log(`[jev-model-router] built-in classifier failed: ${String(error)}`)
+        $.ui.log(`[gear] built-in classifier failed: ${String(error)}`)
       }
     }
 
     if (logDecisions) {
       const ms = (await $.clock.now()) - startedAt
-      $.ui.log(`[jev-model-router] jev (${e.subagentType}): ${describeDecision(decision, ms)}`)
+      $.ui.log(`[gear] jev (${e.subagentType}): ${describeDecision(decision, ms)}`)
     }
 
     // The subagent's own model wins when the caller named one; otherwise it
@@ -376,10 +378,10 @@ export const register: Register = (on, options) => {
     const current = e.model ?? e.parentModel
     const { model, reason } = route(decision, { model: current }, policy)
     if (!model) {
-      if (logDecisions) $.ui.log(`[jev-model-router] ${e.subagentType}: ${reason}`)
+      if (logDecisions) $.ui.log(`[gear] ${e.subagentType}: ${reason}`)
       return next(e)
     }
-    if (logDecisions) $.ui.log(`[jev-model-router] ${e.subagentType} → ${model}: ${reason}`)
+    if (logDecisions) $.ui.log(`[gear] ${e.subagentType} → ${model}: ${reason}`)
     return next({ ...e, model })
   })
 }

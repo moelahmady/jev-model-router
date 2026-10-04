@@ -104,18 +104,24 @@ exactly as the engine built it. The router never blocks a turn.
 
 ## What you see
 
+The plugin shows as **`gear`** beside the model picker, with the effort the turn runs at:
+
 ```
-[jev-model-router] ready on typesafe (https://api.typesafe.ai/v1/systemone); routing main effort
-[jev-model-router] wants effort low: tier fast (0.87) · effort 0.4 → low (0.71) · risky 0.02 · 249ms
-[jev-model-router] main loop → effort low: fast (confidence 0.87)
-[jev-model-router] wants effort medium: tier balanced (0.52) · effort 1.2 → medium (0.50) · risky 0.10 · 249ms
-[jev-model-router] main loop: kept effort medium: balanced (confidence 0.52)
+gear low
+gear medium
 ```
 
-That's effort-only mode at 600k context: a simple turn drops to `low` on the
-same model and cache; an ordinary one stays at `medium`. With `routeMainModel` on,
-a model switch above `maxSwitchTokens` logs `a model switch would re-read it
-uncached, model kept` instead.
+It never switches your main model: it shifts the effort of whichever model you picked.
+On a model with no effort setting it leaves the turn alone and shows nothing.
+
+Turn on `logDecisions` to see every routing step in the transcript:
+
+```
+[gear] ready on typesafe (https://api.typesafe.ai/v1/systemone); routing main effort
+[gear] wants effort low: tier fast (0.87) · effort 0.4 → low (0.71) · risky 0.02 · 249ms
+[gear] main loop → effort low: fast (confidence 0.87)
+[gear] main loop: kept effort medium: balanced (confidence 0.52)
+```
 
 - `ready on` appears once per session: proof the module loaded, and which backend answers.
 - `wants` is what Jev asked for, before policy. It fires at `prompt.submit`, before the turn exists.
@@ -123,20 +129,8 @@ uncached, model kept` instead.
   declined, and the text says why (usually confidence under the downgrade bar,
   or the context gate).
 
-The status line under the prompt always leads with the model the turn actually runs on:
-
-```
-claude-opus-5-5[1m]/low · fast 0.87 · routed
-claude-opus-5-5[1m]/medium · balanced 0.52 · kept
-claude-opus-5-5[1m]/medium · no decision
-```
-
-`no decision` means no classification reached this turn: the TypeSafe call
-failed or timed out, or the turn had no prompt of its own (a resumed session,
-a queued continuation). It fails open.
-
-The banner and `/model` never move: routing rewrites each request, not the
-session setting. Trust the `main loop` line and the status line, not the header.
+Errors (a failed or timed-out classification) always log, whatever `logDecisions` says.
+The banner and `/model` never move: routing rewrites each request, not the session setting.
 
 ### No lines at all
 
@@ -144,7 +138,7 @@ session setting. Trust the `main loop` line and the status line, not the header.
 2. **Function hooks are off.** Needs `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` and Claude Code 2.1.280+.
 3. **Options under the wrong key.** A `ready on the built-in classifier, no key set`
    line when you did set a key means `pluginConfigs` uses the wrong id. Installed
-   in `~/.claude/skills/`, the id is `jev-model-router@skills-dir`.
+   in `~/.claude/skills/`, the id is `gear@skills-dir`.
 
 ## Privacy
 
@@ -173,7 +167,7 @@ your normal Claude Code credentials.
   routeMainEffort:        boolean effort of the main loop (default true)
   routeMainModel:         boolean model of the main loop (default false)
   timeoutMs:              number  latency budget per classification (default 800)
-  logDecisions:           boolean log each decision (default true)
+  logDecisions:           boolean log each decision to the transcript (default false; the status line always shows)
 ```
 
 On the main loop an alias resolves to an id: `haiku` → `claude-haiku-4-5-20251001`,
@@ -190,7 +184,7 @@ Recommended config, in `~/.claude/settings.json`:
 {
   "env": { "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1" },
   "pluginConfigs": {
-    "jev-model-router@skills-dir": {
+    "gear@skills-dir": {
       "options": {
         "typesafeApiKey": "apikey_...",
         "provider": "typesafe",

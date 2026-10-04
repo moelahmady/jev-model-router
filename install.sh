@@ -25,7 +25,7 @@ import json, os, collections
 p = os.environ['SETTINGS']
 s = json.load(open(p), object_pairs_hook=collections.OrderedDict) if os.path.exists(p) else collections.OrderedDict()
 s.setdefault('env', collections.OrderedDict())['CLAUDE_CODE_ENABLE_FUNCTION_HOOKS'] = '1'
-s.setdefault('pluginConfigs', collections.OrderedDict())['jev-model-router@skills-dir'] = {
+s.setdefault('pluginConfigs', collections.OrderedDict())['gear@skills-dir'] = {
     'options': {
         'typesafeApiKey': os.environ['TYPESAFE_API_KEY'],
         'provider': 'typesafe',
@@ -54,5 +54,5 @@ PY
 
 claude plugin validate "$DEST"
 echo
-echo "Installed. Restart claude, then look for:"
-echo "  [jev-model-router] ready on typesafe (https://api.typesafe.ai/v1/systemone)"
+echo "Installed. Restart claude, send a message, then look beside the model picker for:"
+echo "  gear low"

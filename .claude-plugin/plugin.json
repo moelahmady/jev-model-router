@@ -1,5 +1,5 @@
 {
-  "name": "jev-model-router",
+  "name": "gear",
   "version": "1.4.0",
   "description": "Routes each turn's reasoning effort with TypeSafe's Jev decision model, keeping the prompt cache (Claude Code 2.1.280+). Model routing is available but off by default and refused above maxSwitchTokens, since a model switch re-writes the whole context.",
   "author": {
@@ -97,8 +97,8 @@
     "logDecisions": {
       "type": "boolean",
       "title": "Log decisions",
-      "description": "Write each routing decision to the session log",
-      "default": true
+      "description": "Write every routing step to the transcript; the chosen effort always shows on the status line",
+      "default": false
     },
     "smallModelMaxTokens": {
       "type": "number",
